@@ -254,6 +254,8 @@ func run() error {
 	switch cmd {
 	case "help":
 		return usage()
+	case "ls":
+		fallthrough
 	case "list":
 		return mfd.List()
 	case "fetch":
@@ -280,6 +282,10 @@ func run() error {
 		}
 		deployment := args[1]
 		return mfd.Activate(deployment)
+	case "rm":
+		fallthrough
+	case "delete":
+		fallthrough
 	case "remove":
 		if len(args) < 2 {
 			return usage()
