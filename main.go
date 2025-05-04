@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -27,6 +29,51 @@ import (
 // Should this handle fetching and building the deployment?
 
 const activeDeploymentSymlinkName = "current"
+
+type Config struct {
+	Repo struct {
+		URL string `toml:"url"`
+	} `toml:"repo"`
+	Build struct {
+		Commands [][]string `toml:"commands"`
+	} `toml:"build"`
+}
+
+func readConfig(data string) (Config, error) {
+	conf := Config{}
+
+	meta, err := toml.Decode(data, &conf)
+	if err != nil {
+		return Config{}, err
+	}
+
+	// Build set of present config keys.
+	present := make(map[string]bool)
+	for _, key := range meta.Keys() {
+		present[key.String()] = true
+	}
+
+	required := []string{
+		"repo.url",
+		"build.commands",
+	}
+
+	// Gather any missing values.
+	missing := []string{}
+	for _, key := range required {
+		if _, ok := present[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+
+	// Error upon missing values
+	if len(missing) > 0 {
+		msg := strings.Join(missing, ", ")
+		return Config{}, fmt.Errorf("missing config values: %s", msg)
+	}
+
+	return conf, nil
+}
 
 func main() {
 	code := 0
@@ -52,7 +99,18 @@ func usage() error {
 	return nil
 }
 
-func list() error {
+type MFD struct {
+	conf Config
+}
+
+func NewMFD(conf Config) MFD {
+	mfd := MFD{
+		conf: conf,
+	}
+	return mfd
+}
+
+func (mfd *MFD) List() error {
 	files, err := os.ReadDir(".")
 	if err != nil {
 		return err
@@ -77,7 +135,7 @@ func list() error {
 	return nil
 }
 
-func activate(deployment string) error {
+func (mfd *MFD) Activate(deployment string) error {
 	link, err := os.Lstat(activeDeploymentSymlinkName)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -93,10 +151,9 @@ func activate(deployment string) error {
 	return os.Symlink(deployment, activeDeploymentSymlinkName)
 }
 
-// TODO: Maybe the repo can be part of the configuration file?
-func fetch(repo, commit string) error {
-	r, err := git.PlainClone(commit, false, &git.CloneOptions{
-		URL:      repo,
+func (mfd *MFD) Fetch(deployment string) error {
+	r, err := git.PlainClone(deployment, false, &git.CloneOptions{
+		URL:      mfd.conf.Repo.URL,
 		Progress: os.Stdout,
 	})
 	if err != nil {
@@ -112,7 +169,7 @@ func fetch(repo, commit string) error {
 	}
 
 	err = w.Checkout(&git.CheckoutOptions{
-		Hash: plumbing.NewHash(commit),
+		Hash: plumbing.NewHash(deployment),
 	})
 	if err != nil {
 		return err
@@ -121,24 +178,35 @@ func fetch(repo, commit string) error {
 	return nil
 }
 
-// TODO: How can a user configure the build command(s)?
-func build(deployment string) error {
-	cmd := exec.Command("npm", "install")
-	cmd.Dir = deployment
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+func (mfd *MFD) Build(deployment string) error {
+	for _, command := range mfd.conf.Build.Commands {
+		cmd := exec.Command(command[0], command[1:]...)
+		cmd.Dir = deployment
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
-	err := cmd.Run()
+		fmt.Println(strings.Join(command, " "))
+		err := cmd.Run()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mfd *MFD) Deploy(deployment string) error {
+	err := mfd.Fetch(deployment)
 	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("npm", "run", "build")
-	cmd.Dir = deployment
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	err = mfd.Build(deployment)
+	if err != nil {
+		return err
+	}
 
-	err = cmd.Run()
+	err = mfd.Activate(deployment)
 	if err != nil {
 		return err
 	}
@@ -146,18 +214,17 @@ func build(deployment string) error {
 	return nil
 }
 
-func deploy(repo, commit string) error {
-	err := fetch(repo, commit)
-	if err != nil {
-		return err
+func (mfd *MFD) Remove(deployment string) error {
+	active, err := os.Readlink(activeDeploymentSymlinkName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
 
-	err = build(commit)
-	if err != nil {
-		return err
+	if active == deployment || deployment == activeDeploymentSymlinkName {
+		return errors.New("cannot remove active deployment")
 	}
 
-	err = activate(commit)
+	err = os.RemoveAll(deployment)
 	if err != nil {
 		return err
 	}
@@ -166,6 +233,18 @@ func deploy(repo, commit string) error {
 }
 
 func run() error {
+	data, err := os.ReadFile("mfd.toml")
+	if err != nil {
+		return err
+	}
+
+	conf, err := readConfig(string(data))
+	if err != nil {
+		return err
+	}
+
+	mfd := NewMFD(conf)
+
 	args := os.Args[1:]
 	if len(args) == 0 {
 		return usage()
@@ -176,31 +255,37 @@ func run() error {
 	case "help":
 		return usage()
 	case "list":
-		return list()
+		return mfd.List()
 	case "fetch":
-		if len(args) < 3 {
+		if len(args) < 2 {
 			return usage()
 		}
-		repo, commit := args[1], args[2]
-		return fetch(repo, commit)
+		deployment := args[1]
+		return mfd.Fetch(deployment)
 	case "build":
 		if len(args) < 2 {
 			return usage()
 		}
 		deployment := args[1]
-		return build(deployment)
+		return mfd.Build(deployment)
 	case "deploy":
-		if len(args) < 3 {
+		if len(args) < 2 {
 			return usage()
 		}
-		repo, commit := args[1], args[2]
-		return deploy(repo, commit)
+		deployment := args[1]
+		return mfd.Deploy(deployment)
 	case "activate":
 		if len(args) < 2 {
 			return usage()
 		}
 		deployment := args[1]
-		return activate(deployment)
+		return mfd.Activate(deployment)
+	case "remove":
+		if len(args) < 2 {
+			return usage()
+		}
+		deployment := args[1]
+		return mfd.Remove(deployment)
 	default:
 		return usage()
 	}
