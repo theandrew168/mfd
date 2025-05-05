@@ -25,11 +25,11 @@ Then, that symlink can point to any given revision of the project available on t
 
 How would deployments work using this approach?
 We'd first have a separate directory for each revision of the app that has been deployed (`/usr/local/bin/fussy/384a283` for example).
-There will then exist a symlink (something like `/usr/local/bin/fussy/current`) that points to whichever version of the app is currently active.
+There will then exist a symlink (something like `/usr/local/bin/fussy/active`) that points to whichever version of the app is currently active.
 
 When deploying a new version, clone and checkout its code into a new directory that correponds to its commit hash.
 Then, from this new version directory, run both of the "build" steps: `npm install` and `npm run build`.
-Next, update the "current" symlink to point to the new version directly.
+Next, update the "active" symlink to point to the new version directly.
 Lastly, restart the systemd service which will pick up the code from the new version.
 
 This will switch to the new code while minimizing the amount of “race condition” time spent running the old process with the new files.

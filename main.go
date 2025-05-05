@@ -28,14 +28,20 @@ import (
 // Should this integrate with systemd? Requires sudo.
 // Should this handle fetching and building the deployment?
 
-const activeDeploymentSymlinkName = "current"
+const ActiveDeploymentSymlinkName = "active"
+
+type Command []string
+
+func (c Command) String() string {
+	return strings.Join(c, " ")
+}
 
 type Config struct {
 	Repo struct {
 		URL string `toml:"url"`
 	} `toml:"repo"`
 	Build struct {
-		Commands [][]string `toml:"commands"`
+		Commands []Command `toml:"commands"`
 	} `toml:"build"`
 }
 
@@ -95,6 +101,7 @@ func usage() error {
 	fmt.Println("  build       Build a deployment")
 	fmt.Println("  deploy      Fetch, build, and activate a deployment")
 	fmt.Println("  activate    Activate a deployment")
+	fmt.Println("  remove      Remove a deployment")
 	fmt.Println("  help        Show this help message")
 	return nil
 }
@@ -116,7 +123,7 @@ func (mfd *MFD) List() error {
 		return err
 	}
 
-	active, err := os.Readlink(activeDeploymentSymlinkName)
+	active, err := os.Readlink(ActiveDeploymentSymlinkName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -124,6 +131,10 @@ func (mfd *MFD) List() error {
 	for _, file := range files {
 		if file.IsDir() {
 			name := file.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+
 			if name == active {
 				fmt.Printf("%s (active)\n", name)
 			} else {
@@ -136,7 +147,7 @@ func (mfd *MFD) List() error {
 }
 
 func (mfd *MFD) Activate(deployment string) error {
-	link, err := os.Lstat(activeDeploymentSymlinkName)
+	link, err := os.Lstat(ActiveDeploymentSymlinkName)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -148,7 +159,7 @@ func (mfd *MFD) Activate(deployment string) error {
 		}
 	}
 
-	return os.Symlink(deployment, activeDeploymentSymlinkName)
+	return os.Symlink(deployment, ActiveDeploymentSymlinkName)
 }
 
 func (mfd *MFD) Fetch(deployment string) error {
@@ -185,7 +196,7 @@ func (mfd *MFD) Build(deployment string) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
-		fmt.Println(strings.Join(command, " "))
+		fmt.Println(command)
 		err := cmd.Run()
 		if err != nil {
 			return err
@@ -215,12 +226,12 @@ func (mfd *MFD) Deploy(deployment string) error {
 }
 
 func (mfd *MFD) Remove(deployment string) error {
-	active, err := os.Readlink(activeDeploymentSymlinkName)
+	active, err := os.Readlink(ActiveDeploymentSymlinkName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 
-	if active == deployment || deployment == activeDeploymentSymlinkName {
+	if active == deployment || deployment == ActiveDeploymentSymlinkName {
 		return errors.New("cannot remove active deployment")
 	}
 
