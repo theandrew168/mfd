@@ -96,6 +96,40 @@ func usage() error {
 	return nil
 }
 
+func filterRelevantDirectories(files []os.DirEntry) []os.DirEntry {
+	var filteredFiles []os.DirEntry
+
+	for _, file := range files {
+		name := file.Name()
+
+		// Ignore anythhing that is not a directory.
+		if !file.IsDir() {
+			continue
+		}
+
+		// Ignore hidden directories.
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		filteredFiles = append(filteredFiles, file)
+	}
+
+	return filteredFiles
+}
+
+func sortFilesNewestToOldest(files []os.DirEntry) []os.DirEntry {
+	sortedFiled := slices.Clone(files)
+	sort.Slice(sortedFiled, func(i, j int) bool {
+		infoI, _ := files[i].Info()
+		infoJ, _ := files[j].Info()
+		// Since this function is checking for "less" and we want newest first,
+		// we need to check if infoI was modified after infoJ.
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+	return sortedFiled
+}
+
 type MFD struct {
 	conf Config
 }
@@ -113,23 +147,19 @@ func (mfd *MFD) List() error {
 		return err
 	}
 
+	files = filterRelevantDirectories(files)
+
 	active, err := os.Readlink(ActiveDeploymentSymlinkName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 
 	for _, file := range files {
-		if file.IsDir() {
-			name := file.Name()
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-
-			if name == active {
-				fmt.Printf("%s (active)\n", name)
-			} else {
-				fmt.Println(name)
-			}
+		name := file.Name()
+		if name == active {
+			fmt.Printf("%s (active)\n", name)
+		} else {
+			fmt.Println(name)
 		}
 	}
 
@@ -139,10 +169,14 @@ func (mfd *MFD) List() error {
 func (mfd *MFD) Activate(deployment string) error {
 	link, err := os.Lstat(ActiveDeploymentSymlinkName)
 	if err != nil {
+		// If the symlink does not exist, we'll soon create it.
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	} else {
+		// If the symlink already exists, remove it.
+		// NOTE: There is technically a small race condition here between
+		// removing the current symlink and creating the new one.
 		err = os.Remove(link.Name())
 		if err != nil {
 			return err
@@ -239,22 +273,8 @@ func (mfd *MFD) Clean() error {
 		return err
 	}
 
-	// Remove all files that are not directories.
-	files = slices.DeleteFunc(files, func(file os.DirEntry) bool {
-		name := file.Name()
-		if strings.HasPrefix(name, ".") {
-			return true
-		}
-
-		return !file.IsDir()
-	})
-
-	// Sort files by modification time, newest first.
-	sort.Slice(files, func(i, j int) bool {
-		infoI, _ := files[i].Info()
-		infoJ, _ := files[j].Info()
-		return infoI.ModTime().After(infoJ.ModTime())
-	})
+	files = filterRelevantDirectories(files)
+	files = sortFilesNewestToOldest(files)
 
 	// Remove all but the most recent N deployments.
 	for _, file := range files[KeepDeploymentsCount:] {
@@ -279,22 +299,8 @@ func (mfd *MFD) Rollback() error {
 		return err
 	}
 
-	// Remove all files that are not directories.
-	files = slices.DeleteFunc(files, func(file os.DirEntry) bool {
-		name := file.Name()
-		if strings.HasPrefix(name, ".") {
-			return true
-		}
-
-		return !file.IsDir()
-	})
-
-	// Sort files by modification time, newest first.
-	sort.Slice(files, func(i, j int) bool {
-		infoI, _ := files[i].Info()
-		infoJ, _ := files[j].Info()
-		return infoI.ModTime().After(infoJ.ModTime())
-	})
+	files = filterRelevantDirectories(files)
+	files = sortFilesNewestToOldest(files)
 
 	// Read the active deployment symlink.
 	active, err := os.Readlink(ActiveDeploymentSymlinkName)
