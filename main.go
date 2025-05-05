@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -12,23 +14,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-// Commands:
-// mfd list (list available deployments)
-// mfd activate (activate a deployment)
-// mfd help (show help message)
-
-// Other commands:
-// mfd clean (remove all deployments except the most recent N)
-// mfd remove (remove a deployment)
-// mfd rollback (rollback to the previous deployment)
-// mfd fetch (fetch a deployment)
-// mfd build (build a deployment)
-// mfd deploy (fetch, build, and activate a deployment)
-
-// Should this integrate with systemd? Requires sudo.
-// Should this handle fetching and building the deployment?
-
-const ActiveDeploymentSymlinkName = "active"
+const (
+	ActiveDeploymentSymlinkName = "active"
+	KeepDeploymentsCount        = 3
+)
 
 type Command []string
 
@@ -101,6 +90,7 @@ func usage() error {
 	fmt.Println("  build       Build a deployment")
 	fmt.Println("  deploy      Fetch, build, and activate a deployment")
 	fmt.Println("  activate    Activate a deployment")
+	fmt.Println("  rollback    Rollback to the previous deployment")
 	fmt.Println("  remove      Remove a deployment")
 	fmt.Println("  help        Show this help message")
 	return nil
@@ -243,6 +233,100 @@ func (mfd *MFD) Remove(deployment string) error {
 	return nil
 }
 
+func (mfd *MFD) Clean() error {
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return err
+	}
+
+	// Remove all files that are not directories.
+	files = slices.DeleteFunc(files, func(file os.DirEntry) bool {
+		name := file.Name()
+		if strings.HasPrefix(name, ".") {
+			return true
+		}
+
+		return !file.IsDir()
+	})
+
+	// Sort files by modification time, newest first.
+	sort.Slice(files, func(i, j int) bool {
+		infoI, _ := files[i].Info()
+		infoJ, _ := files[j].Info()
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// Remove all but the most recent N deployments.
+	for _, file := range files[KeepDeploymentsCount:] {
+		if file.Name() == ActiveDeploymentSymlinkName {
+			fmt.Println("Skipping removal of active deployment")
+			continue
+		}
+
+		fmt.Printf("Removing deployment %s\n", file.Name())
+		err = os.RemoveAll(file.Name())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mfd *MFD) Rollback() error {
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return err
+	}
+
+	// Remove all files that are not directories.
+	files = slices.DeleteFunc(files, func(file os.DirEntry) bool {
+		name := file.Name()
+		if strings.HasPrefix(name, ".") {
+			return true
+		}
+
+		return !file.IsDir()
+	})
+
+	// Sort files by modification time, newest first.
+	sort.Slice(files, func(i, j int) bool {
+		infoI, _ := files[i].Info()
+		infoJ, _ := files[j].Info()
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// Read the active deployment symlink.
+	active, err := os.Readlink(ActiveDeploymentSymlinkName)
+	if err != nil {
+		return errors.New("active deployment not found")
+	}
+
+	// Find the index of the active deployment.
+	activeIndex := slices.IndexFunc(files, func(file os.DirEntry) bool {
+		return file.Name() == active
+	})
+
+	if activeIndex == -1 {
+		return errors.New("active deployment not found")
+	}
+
+	prevIndex := activeIndex + 1
+	if prevIndex >= len(files) {
+		return errors.New("no previous deployment found")
+	}
+
+	prevDeployment := files[prevIndex].Name()
+	fmt.Printf("Rolling back to %s\n", prevDeployment)
+
+	err = mfd.Activate(prevDeployment)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func run() error {
 	data, err := os.ReadFile("mfd.toml")
 	if err != nil {
@@ -293,6 +377,8 @@ func run() error {
 		}
 		deployment := args[1]
 		return mfd.Activate(deployment)
+	case "rollback":
+		return mfd.Rollback()
 	case "rm":
 		fallthrough
 	case "delete":
@@ -303,6 +389,8 @@ func run() error {
 		}
 		deployment := args[1]
 		return mfd.Remove(deployment)
+	case "clean":
+		return mfd.Clean()
 	default:
 		return usage()
 	}
