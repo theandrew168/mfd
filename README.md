@@ -1,6 +1,60 @@
 # mfd
 Utility for managing multi-file application deployments
 
+## Usage
+
+```
+usage: mfd <command> [<args>]
+commands:
+  list        List available deployments
+  fetch       Fetch a deployment
+  build       Build a deployment
+  deploy      Fetch, build, and activate a deployment
+  activate    Activate a deployment
+  rollback    Rollback to the previous deployment
+  remove      Remove a deployment
+  help        Show this help message
+```
+
+## Example
+
+I can use `mfd` to "deploy" a specific version of this project (using the `mfd.toml` file in this repo):
+```console
+mfd deploy cc9bb24537014b7f16c14e745b4c3279dd61964a
+```
+
+Now that version has been fetched, built, and activated:
+```console
+$ mfd list
+cc9bb24537014b7f16c14e745b4c3279dd61964a (active)
+```
+
+I can then deploy a different version of the project just as easily:
+```console
+mfd deploy a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6
+```
+
+Now the _new_ version is active:
+```
+$ mfd list
+a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6 (active)
+cc9bb24537014b7f16c14e745b4c3279dd61964a
+```
+
+So, how does this work under the hood?
+Simple!
+It's just a symlink:
+```console
+$ ls -l
+active -> a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6
+a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6
+cc9bb24537014b7f16c14e745b4c3279dd61964a
+```
+
+As long as your systemd service has `WorkingDirectory` set to `/my/app/active`, it'll only ever see the "active" deployment.
+Once a new version is deployed (fetch, build, and update the symlink), restarting the service will cause the new code to be live.
+There are no risks of directory contamination or file race conditions with this approach.
+
 ## Concept
 
 This initial brain dump comes from thinking about how I'd deploy a NodeJS web application (using something like NextJS or SvelteKit).
