@@ -19,7 +19,7 @@ commands:
 ## Example
 
 I can use `mfd` to "deploy" a specific version of this project (using the `mfd.toml` file in this repo):
-```console
+```
 mfd deploy cc9bb24537014b7f16c14e745b4c3279dd61964a
 ```
 
@@ -30,12 +30,12 @@ cc9bb24537014b7f16c14e745b4c3279dd61964a (active)
 ```
 
 I can then deploy a different version of the project just as easily:
-```console
+```
 mfd deploy a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6
 ```
 
 Now the _new_ version is active:
-```
+```console
 $ mfd list
 a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6 (active)
 cc9bb24537014b7f16c14e745b4c3279dd61964a
