@@ -7,12 +7,11 @@ Utility for managing multi-file application deployments
 usage: mfd <command> [<args>]
 commands:
   list        List available deployments
-  fetch       Fetch a deployment
-  build       Build a deployment
   deploy      Fetch, build, and activate a deployment
   activate    Activate a deployment
   rollback    Rollback to the previous deployment
   remove      Remove a deployment
+  clean       Remove old deployments
   help        Show this help message
 ```
 
@@ -21,6 +20,12 @@ commands:
 I can use `mfd` to "deploy" a specific version of this project (using the `mfd.toml` file in this repo):
 ```
 mfd deploy cc9bb24537014b7f16c14e745b4c3279dd61964a
+```
+
+Tags and short hashes can be used as well (they will be resolved to full hashes prior to deployment):
+```
+mfd deploy cc9bb24
+mfd deploy v0.0.1
 ```
 
 Now that version has been fetched, built, and activated:
