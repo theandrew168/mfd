@@ -3,5 +3,5 @@ url = "https://github.com/theandrew168/mfd"
 
 [build]
 commands = [
-    ["go", "build", "-o", "mfd", "."]
+    ["go", "build", "-o", "mfd", "."],
 ]

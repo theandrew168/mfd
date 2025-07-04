@@ -12,6 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 const (
@@ -86,12 +87,11 @@ func usage() error {
 	fmt.Println("usage: mfd <command> [<args>]")
 	fmt.Println("commands:")
 	fmt.Println("  list        List available deployments")
-	fmt.Println("  fetch       Fetch a deployment")
-	fmt.Println("  build       Build a deployment")
 	fmt.Println("  deploy      Fetch, build, and activate a deployment")
 	fmt.Println("  activate    Activate a deployment")
 	fmt.Println("  rollback    Rollback to the previous deployment")
 	fmt.Println("  remove      Remove a deployment")
+	fmt.Println("  clean       Remove old deployments")
 	fmt.Println("  help        Show this help message")
 	return nil
 }
@@ -141,6 +141,24 @@ func NewMFD(conf Config) MFD {
 	return mfd
 }
 
+func (mfd *MFD) resolveRevision(revision string) (string, error) {
+	// Perform an in-memory clone to find the expected commit / tag.
+	repo, err := git.Clone(memory.NewStorage(), nil, &git.CloneOptions{
+		URL: mfd.conf.Repo.URL,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error performing in-memory clone: %w", err)
+	}
+
+	// Resolve the revision to a commit hash.
+	commit, err := repo.ResolveRevision(plumbing.Revision(revision))
+	if err != nil {
+		return "", fmt.Errorf("error resolving revision: %w", err)
+	}
+
+	return commit.String(), nil
+}
+
 func (mfd *MFD) List() error {
 	files, err := os.ReadDir(".")
 	if err != nil {
@@ -187,7 +205,7 @@ func (mfd *MFD) Activate(deployment string) error {
 }
 
 func (mfd *MFD) Fetch(deployment string) error {
-	r, err := git.PlainClone(deployment, false, &git.CloneOptions{
+	repo, err := git.PlainClone(deployment, false, &git.CloneOptions{
 		URL:      mfd.conf.Repo.URL,
 		Progress: os.Stdout,
 	})
@@ -195,19 +213,19 @@ func (mfd *MFD) Fetch(deployment string) error {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("error cloning repository: %w", err)
 	}
 
-	w, err := r.Worktree()
+	w, err := repo.Worktree()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting worktree: %w", err)
 	}
 
 	err = w.Checkout(&git.CheckoutOptions{
 		Hash: plumbing.NewHash(deployment),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("error checking out commit %s: %w", deployment, err)
 	}
 
 	return nil
@@ -359,23 +377,17 @@ func run() error {
 		fallthrough
 	case "list":
 		return mfd.List()
-	case "fetch":
-		if len(args) < 2 {
-			return usage()
-		}
-		deployment := args[1]
-		return mfd.Fetch(deployment)
-	case "build":
-		if len(args) < 2 {
-			return usage()
-		}
-		deployment := args[1]
-		return mfd.Build(deployment)
 	case "deploy":
-		if len(args) < 2 {
-			return usage()
+		revision := "HEAD"
+		if len(args) > 1 {
+			revision = args[1]
 		}
-		deployment := args[1]
+
+		deployment, err := mfd.resolveRevision(revision)
+		if err != nil {
+			return err
+		}
+
 		return mfd.Deploy(deployment)
 	case "activate":
 		if len(args) < 2 {
