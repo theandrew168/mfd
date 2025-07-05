@@ -206,8 +206,7 @@ func (mfd *MFD) Activate(deployment string) error {
 
 func (mfd *MFD) Fetch(deployment string) error {
 	repo, err := git.PlainClone(deployment, false, &git.CloneOptions{
-		URL:      mfd.conf.Repo.URL,
-		Progress: os.Stdout,
+		URL: mfd.conf.Repo.URL,
 	})
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
@@ -354,12 +353,12 @@ func (mfd *MFD) Rollback() error {
 func run() error {
 	data, err := os.ReadFile("mfd.toml")
 	if err != nil {
-		return err
+		return fmt.Errorf("error reading configuration: %w", err)
 	}
 
 	conf, err := readConfig(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("error reading configuration: %w", err)
 	}
 
 	mfd := NewMFD(conf)
@@ -388,6 +387,7 @@ func run() error {
 			return err
 		}
 
+		fmt.Printf("Resolved %s to %s\n", revision, deployment)
 		return mfd.Deploy(deployment)
 	case "activate":
 		if len(args) < 2 {
