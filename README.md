@@ -7,7 +7,8 @@ Utility for managing multi-file application deployments
 usage: mfd <command> [<args>]
 commands:
   list        List available deployments
-  deploy      Fetch, build, and activate a deployment
+  deploy      Resolve, fetch, build, and activate a revision
+  resolve     Resolve a revision to a deployment
   activate    Activate a deployment
   rollback    Rollback to the previous deployment
   remove      Remove a deployment
