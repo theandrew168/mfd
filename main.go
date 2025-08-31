@@ -300,6 +300,11 @@ func (mfd *MFD) Clean() error {
 	files = filterRelevantDirectories(files)
 	files = sortFilesNewestToOldest(files)
 
+	// If there are not more than N deployments, do nothing.
+	if len(files) <= KeepDeploymentsCount {
+		return nil
+	}
+
 	// Remove all but the most recent N deployments.
 	for _, file := range files[KeepDeploymentsCount:] {
 		if file.Name() == ActiveDeploymentSymlinkName {
