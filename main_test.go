@@ -69,15 +69,13 @@ func TestReadConfig(t *testing.T) {
 	toml := fmt.Sprintf(`
 		[repo]
 		url = "%s"
+		token = "%s"
 
 		[build]
 		commands = [
 			["%s"],
 		]
-
-		[auth]
-		token = "%s"
-	`, url, strings.Join(command, `", "`), token)
+	`, url, token, strings.Join(command, `", "`))
 
 	config, err := readConfig(toml)
 	if err != nil {
@@ -93,8 +91,8 @@ func TestReadConfig(t *testing.T) {
 	if !slices.Equal(config.Build.Commands[0], command) {
 		t.Errorf("Expected build command %s, got %s", command, config.Build.Commands[0])
 	}
-	if config.Auth.Token != token {
-		t.Errorf("Expected auth token %s, got %s", token, config.Auth.Token)
+	if config.Repo.Token != token {
+		t.Errorf("Expected auth token %s, got %s", token, config.Repo.Token)
 	}
 }
 
@@ -128,15 +126,13 @@ func TestReadConfigTokenAndPassword(t *testing.T) {
 	data := fmt.Sprintf(`
 		[repo]
 		url = "%s"
+		token = "mytoken"
+		password = "mypassword"
 
 		[build]
 		commands = [
 			["true"],
 		]
-
-		[auth]
-		token = "mytoken"
-		password = "mypassword"
 	`, url)
 
 	_, err := readConfig(data)
@@ -156,14 +152,12 @@ func TestReadConfigMissingUsername(t *testing.T) {
 	data := fmt.Sprintf(`
 		[repo]
 		url = "%s"
+		password = "mypassword"
 
 		[build]
 		commands = [
 			["true"],
 		]
-
-		[auth]
-		password = "mypassword"
 	`, url)
 
 	_, err := readConfig(data)

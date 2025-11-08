@@ -34,16 +34,14 @@ func (c Command) String() string {
 
 type Config struct {
 	Repo struct {
-		URL string `toml:"url"`
+		URL      string `toml:"url"`
+		Username string `toml:"username"`
+		Password string `toml:"password"`
+		Token    string `toml:"token"`
 	} `toml:"repo"`
 	Build struct {
 		Commands []Command `toml:"commands"`
 	} `toml:"build"`
-	Auth struct {
-		Username string `toml:"username"`
-		Password string `toml:"password"`
-		Token    string `toml:"token"`
-	} `toml:"auth"`
 }
 
 func (c Config) CloneOptions() *git.CloneOptions {
@@ -51,15 +49,15 @@ func (c Config) CloneOptions() *git.CloneOptions {
 		URL: c.Repo.URL,
 	}
 
-	if c.Auth.Token != "" {
+	if c.Repo.Token != "" {
 		opts.Auth = &http.BasicAuth{
 			Username: "mfd",
-			Password: c.Auth.Token,
+			Password: c.Repo.Token,
 		}
-	} else if c.Auth.Password != "" {
+	} else if c.Repo.Password != "" {
 		opts.Auth = &http.BasicAuth{
-			Username: c.Auth.Username,
-			Password: c.Auth.Password,
+			Username: c.Repo.Username,
+			Password: c.Repo.Password,
 		}
 	}
 
@@ -101,10 +99,10 @@ func readConfig(data string) (Config, error) {
 		return Config{}, fmt.Errorf("missing config values: %s", msg)
 	}
 
-	if conf.Auth.Password != "" && conf.Auth.Token != "" {
+	if conf.Repo.Password != "" && conf.Repo.Token != "" {
 		return Config{}, ErrTokenAndPassword
 	}
-	if conf.Auth.Password != "" && conf.Auth.Username == "" {
+	if conf.Repo.Password != "" && conf.Repo.Username == "" {
 		return Config{}, ErrMissingUsername
 	}
 
@@ -406,8 +404,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("error reading configuration: %w", err)
 	}
-
-	fmt.Printf("%+v\n", conf)
 
 	mfd := NewMFD(conf)
 
