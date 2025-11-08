@@ -12,12 +12,18 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 const (
 	ActiveDeploymentSymlinkName = "active"
 	KeepDeploymentsCount        = 3
+)
+
+var (
+	ErrMissingUsername  = errors.New("username must be specified when using password authentication")
+	ErrTokenAndPassword = errors.New("cannot specify both password and token for authentication")
 )
 
 type Command []string
@@ -33,6 +39,31 @@ type Config struct {
 	Build struct {
 		Commands []Command `toml:"commands"`
 	} `toml:"build"`
+	Auth struct {
+		Username string `toml:"username"`
+		Password string `toml:"password"`
+		Token    string `toml:"token"`
+	} `toml:"auth"`
+}
+
+func (c Config) CloneOptions() *git.CloneOptions {
+	opts := git.CloneOptions{
+		URL: c.Repo.URL,
+	}
+
+	if c.Auth.Token != "" {
+		opts.Auth = &http.BasicAuth{
+			Username: "mfd",
+			Password: c.Auth.Token,
+		}
+	} else if c.Auth.Password != "" {
+		opts.Auth = &http.BasicAuth{
+			Username: c.Auth.Username,
+			Password: c.Auth.Password,
+		}
+	}
+
+	return &opts
 }
 
 // This function reads the configuration from a TOML string and returns a Config struct.
@@ -68,6 +99,13 @@ func readConfig(data string) (Config, error) {
 	if len(missing) > 0 {
 		msg := strings.Join(missing, ", ")
 		return Config{}, fmt.Errorf("missing config values: %s", msg)
+	}
+
+	if conf.Auth.Password != "" && conf.Auth.Token != "" {
+		return Config{}, ErrTokenAndPassword
+	}
+	if conf.Auth.Password != "" && conf.Auth.Username == "" {
+		return Config{}, ErrMissingUsername
 	}
 
 	return conf, nil
@@ -194,9 +232,7 @@ func (mfd *MFD) Activate(deployment string) error {
 }
 
 func (mfd *MFD) Fetch(deployment string) error {
-	repo, err := git.PlainClone(deployment, false, &git.CloneOptions{
-		URL: mfd.conf.Repo.URL,
-	})
+	repo, err := git.PlainClone(deployment, false, mfd.conf.CloneOptions())
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return nil
@@ -257,9 +293,7 @@ func (mfd *MFD) Deploy(deployment string) error {
 
 func (mfd *MFD) Resolve(revision string) (string, error) {
 	// Perform an in-memory clone to find the expected commit / tag.
-	repo, err := git.Clone(memory.NewStorage(), nil, &git.CloneOptions{
-		URL: mfd.conf.Repo.URL,
-	})
+	repo, err := git.Clone(memory.NewStorage(), nil, mfd.conf.CloneOptions())
 	if err != nil {
 		return "", fmt.Errorf("error performing in-memory clone: %w", err)
 	}
@@ -372,6 +406,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("error reading configuration: %w", err)
 	}
+
+	fmt.Printf("%+v\n", conf)
 
 	mfd := NewMFD(conf)
 

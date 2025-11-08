@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -64,6 +65,7 @@ func TestReadConfig(t *testing.T) {
 
 	url := "https://example.com/repo.git"
 	command := strings.Split("go build -o mfd .", " ")
+	token := "mytoken"
 	toml := fmt.Sprintf(`
 		[repo]
 		url = "%s"
@@ -72,7 +74,10 @@ func TestReadConfig(t *testing.T) {
 		commands = [
 			["%s"],
 		]
-	`, url, strings.Join(command, `", "`))
+
+		[auth]
+		token = "%s"
+	`, url, strings.Join(command, `", "`), token)
 
 	config, err := readConfig(toml)
 	if err != nil {
@@ -87,6 +92,9 @@ func TestReadConfig(t *testing.T) {
 	}
 	if !slices.Equal(config.Build.Commands[0], command) {
 		t.Errorf("Expected build command %s, got %s", command, config.Build.Commands[0])
+	}
+	if config.Auth.Token != token {
+		t.Errorf("Expected auth token %s, got %s", token, config.Auth.Token)
 	}
 }
 
@@ -110,6 +118,61 @@ func TestReadConfigRequired(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "build.commands") {
 		t.Errorf("Expected error to mention 'build.commands', got '%s'", err.Error())
+	}
+}
+
+func TestReadConfigTokenAndPassword(t *testing.T) {
+	t.Parallel()
+
+	url := "https://example.com/repo.git"
+	data := fmt.Sprintf(`
+		[repo]
+		url = "%s"
+
+		[build]
+		commands = [
+			["true"],
+		]
+
+		[auth]
+		token = "mytoken"
+		password = "mypassword"
+	`, url)
+
+	_, err := readConfig(data)
+	if err == nil {
+		t.Fatalf("Expected error reading config, got nil")
+	}
+
+	if !errors.Is(err, ErrTokenAndPassword) {
+		t.Errorf("Expected error to be ErrTokenAndPassword, got '%v'", err)
+	}
+}
+
+func TestReadConfigMissingUsername(t *testing.T) {
+	t.Parallel()
+
+	url := "https://example.com/repo.git"
+	data := fmt.Sprintf(`
+		[repo]
+		url = "%s"
+
+		[build]
+		commands = [
+			["true"],
+		]
+
+		[auth]
+		password = "mypassword"
+	`, url)
+
+	_, err := readConfig(data)
+	if err == nil {
+		t.Fatalf("Expected error reading config, got nil")
+	}
+
+	if !errors.Is(err, ErrMissingUsername) {
+		t.Errorf("Expected error to be ErrMissingUsername, got '%v'", err)
 	}
 }
 
