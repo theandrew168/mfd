@@ -131,7 +131,7 @@ func usage() error {
 	fmt.Println("  resolve     Resolve a revision to a deployment")
 	fmt.Println("  activate    Activate a deployment")
 	fmt.Println("  remove      Remove a deployment")
-	fmt.Println("  clean       Remove old deployments")
+	fmt.Println("  clean       Remove non-active deployments")
 	fmt.Println("  help        Show this help message")
 	return nil
 }
