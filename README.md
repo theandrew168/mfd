@@ -10,9 +10,9 @@ commands:
   deploy      Resolve, fetch, build, and activate a revision
   resolve     Resolve a revision to a deployment
   activate    Activate a deployment
-  rollback    Rollback to the previous deployment
+  restart     Restart a deployment
   remove      Remove a deployment
-  clean       Remove old deployments
+  clean       Remove non-active deployments
   help        Show this help message
 ```
 

@@ -179,52 +179,25 @@ func TestFilterRelevantDirectories(t *testing.T) {
 		NewFakeDirEntry("foo.txt", false, now),
 		// Not a directory, should be ignored.
 		NewFakeDirEntry("README.md", false, now),
-		// Should be included.
-		NewFakeDirEntry("src/", true, now),
-		// Should be included.
-		NewFakeDirEntry("testdata/", true, now),
+		// Not a SHA1 directory, should be ignored.
+		NewFakeDirEntry("src", true, now),
+		// Not a SHA1 directory, should be ignored.
+		NewFakeDirEntry("testdata", true, now),
 		// Hidden directory, should be ignored.
-		NewFakeDirEntry(".github/", true, now),
+		NewFakeDirEntry(".github", true, now),
+		// Valid SHA1 directory, should be included.
+		NewFakeDirEntry("a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", true, now),
 	}
 
 	relevant := filterRelevantDirectories(files)
-	if len(relevant) != 2 {
-		t.Fatalf("Expected 2 relevant directories, got %d", len(relevant))
+	if len(relevant) != 1 {
+		t.Fatalf("Expected 1 relevant directory, got %d", len(relevant))
 	}
 
-	expected := []string{"src/", "testdata/"}
+	expected := []string{"a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"}
 	for _, entry := range relevant {
 		if !slices.Contains(expected, entry.Name()) {
 			t.Errorf("Unexpected directory: %s", entry.Name())
 		}
-	}
-}
-
-func TestSortFilesNewestToOldest(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	files := []os.DirEntry{
-		// Current (should be second).
-		NewFakeDirEntry("file1.txt", false, now),
-		// Newer (should be first).
-		NewFakeDirEntry("file2.txt", false, now.AddDate(0, 0, 1)),
-		// Oldest (should be third).
-		NewFakeDirEntry("file3.txt", false, now.AddDate(0, 0, -1)),
-	}
-
-	sorted := sortFilesNewestToOldest(files)
-	if len(sorted) != 3 {
-		t.Fatalf("Expected 3 files, got %d", len(sorted))
-	}
-
-	if sorted[0].Name() != "file2.txt" {
-		t.Errorf("First file is incorrect: got %s, want %s", sorted[0].Name(), "file2.txt")
-	}
-	if sorted[1].Name() != "file1.txt" {
-		t.Errorf("Second file is incorrect: got %s, want %s", sorted[1].Name(), "file1.txt")
-	}
-	if sorted[2].Name() != "file3.txt" {
-		t.Errorf("Third file is incorrect: got %s, want %s", sorted[2].Name(), "file3.txt")
 	}
 }

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
-	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -22,6 +20,7 @@ const (
 )
 
 var (
+	ErrRemoveActive     = errors.New("cannot remove active deployment")
 	ErrMissingUsername  = errors.New("username must be specified when using password authentication")
 	ErrTokenAndPassword = errors.New("cannot specify both password and token for authentication")
 )
@@ -131,7 +130,6 @@ func usage() error {
 	fmt.Println("  deploy      Resolve, fetch, build, and activate a revision")
 	fmt.Println("  resolve     Resolve a revision to a deployment")
 	fmt.Println("  activate    Activate a deployment")
-	fmt.Println("  rollback    Rollback to the previous deployment")
 	fmt.Println("  remove      Remove a deployment")
 	fmt.Println("  clean       Remove old deployments")
 	fmt.Println("  help        Show this help message")
@@ -139,7 +137,8 @@ func usage() error {
 }
 
 // This function filters out directories that are not relevant for deployments.
-// It ignores hidden directories (those starting with a dot) and non-directory entries.
+// It ignores hidden directories (those starting with a dot), non-directory entries,
+// and directories whose names are not 40-character SHA1 hashes.
 func filterRelevantDirectories(files []os.DirEntry) []os.DirEntry {
 	var filteredFiles []os.DirEntry
 
@@ -156,24 +155,15 @@ func filterRelevantDirectories(files []os.DirEntry) []os.DirEntry {
 			continue
 		}
 
+		// Ignore directories whose names are not 40-character SHA1 hashes.
+		if len(name) != 40 {
+			continue
+		}
+
 		filteredFiles = append(filteredFiles, file)
 	}
 
 	return filteredFiles
-}
-
-// This function sorts the files by modification time, newest first.
-// It uses the `slices.Clone` function to avoid modifying the original slice.
-func sortFilesNewestToOldest(files []os.DirEntry) []os.DirEntry {
-	sortedFiles := slices.Clone(files)
-	sort.Slice(sortedFiles, func(i, j int) bool {
-		infoI, _ := files[i].Info()
-		infoJ, _ := files[j].Info()
-		// Since this function is checking for "less" and we want newest first,
-		// we need to check if infoI was modified after infoJ.
-		return infoI.ModTime().After(infoJ.ModTime())
-	})
-	return sortedFiles
 }
 
 type MFD struct {
@@ -338,9 +328,10 @@ func (mfd *MFD) Remove(deployment string) error {
 	}
 
 	if active == deployment || deployment == ActiveDeploymentSymlinkName {
-		return errors.New("cannot remove active deployment")
+		return ErrRemoveActive
 	}
 
+	fmt.Printf("Removing deployment: %s\n", deployment)
 	err = os.RemoveAll(deployment)
 	if err != nil {
 		return err
@@ -356,65 +347,15 @@ func (mfd *MFD) Clean() error {
 	}
 
 	files = filterRelevantDirectories(files)
-	files = sortFilesNewestToOldest(files)
 
-	// If there are not more than N deployments, do nothing.
-	if len(files) <= KeepDeploymentsCount {
-		return nil
-	}
-
-	// Remove all but the most recent N deployments.
-	for _, file := range files[KeepDeploymentsCount:] {
-		if file.Name() == ActiveDeploymentSymlinkName {
-			fmt.Println("Skipping removal of active deployment")
-			continue
-		}
-
-		fmt.Printf("Removing deployment %s\n", file.Name())
-		err = os.RemoveAll(file.Name())
+	for _, file := range files {
+		err = mfd.Remove(file.Name())
 		if err != nil {
+			if errors.Is(err, ErrRemoveActive) {
+				continue
+			}
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (mfd *MFD) Rollback() error {
-	files, err := os.ReadDir(".")
-	if err != nil {
-		return err
-	}
-
-	files = filterRelevantDirectories(files)
-	files = sortFilesNewestToOldest(files)
-
-	// Read the active deployment symlink.
-	active, err := os.Readlink(ActiveDeploymentSymlinkName)
-	if err != nil {
-		return errors.New("active deployment not found")
-	}
-
-	// Find the index of the active deployment.
-	activeIndex := slices.IndexFunc(files, func(file os.DirEntry) bool {
-		return file.Name() == active
-	})
-
-	if activeIndex == -1 {
-		return errors.New("active deployment not found")
-	}
-
-	prevIndex := activeIndex + 1
-	if prevIndex >= len(files) {
-		return errors.New("no previous deployment found")
-	}
-
-	prevDeployment := files[prevIndex].Name()
-	fmt.Printf("Rolling back to %s\n", prevDeployment)
-
-	err = mfd.Activate(prevDeployment)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -478,8 +419,8 @@ func run() error {
 		}
 		deployment := args[1]
 		return mfd.Activate(deployment)
-	case "rollback":
-		return mfd.Rollback()
+	case "restart":
+		return mfd.Restart()
 	case "rm":
 		fallthrough
 	case "delete":
