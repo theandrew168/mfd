@@ -42,6 +42,9 @@ type Config struct {
 	Build struct {
 		Commands []Command `toml:"commands"`
 	} `toml:"build"`
+	Systemd struct {
+		Unit string `toml:"unit"`
+	} `toml:"systemd"`
 }
 
 func (c Config) CloneOptions() *git.CloneOptions {
@@ -263,8 +266,26 @@ func (mfd *MFD) Build(deployment string) error {
 		fmt.Println(command)
 		err := cmd.Run()
 		if err != nil {
-			return err
+			return fmt.Errorf("error running build command %s: %w", command.String(), err)
 		}
+	}
+
+	return nil
+}
+
+func (mfd *MFD) Restart() error {
+	if mfd.conf.Systemd.Unit == "" {
+		return nil
+	}
+
+	cmd := exec.Command("systemctl", "restart", mfd.conf.Systemd.Unit)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Printf("systemctl restart %s\n", mfd.conf.Systemd.Unit)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("error restarting systemd unit %s: %w", mfd.conf.Systemd.Unit, err)
 	}
 
 	return nil
@@ -282,6 +303,11 @@ func (mfd *MFD) Deploy(deployment string) error {
 	}
 
 	err = mfd.Activate(deployment)
+	if err != nil {
+		return err
+	}
+
+	err = mfd.Restart()
 	if err != nil {
 		return err
 	}
