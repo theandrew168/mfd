@@ -39,4 +39,4 @@ update-deps:
 
 .PHONY: clean
 clean:
-	rm -fr mfd c.out dist/
+	rm -fr mfd c.out dist/ mfd_* active

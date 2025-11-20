@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	ErrDeploymentNotFound = errors.New("deployment not found")
-	ErrInvalidDeployment  = errors.New("invalid deployment")
+	ErrDeploymentNotFound   = errors.New("deployment not found")
+	ErrInvalidDeployment    = errors.New("invalid deployment")
+	ErrNoPreviousDeployment = errors.New("no previous deployment found")
 )
 
 type Deployment struct {
@@ -281,6 +282,7 @@ func (mfd *MFD) Deploy(commitHash string) error {
 
 	deployment, err := findDeploymentByCommitHash(deployments, commitHash)
 	if err == nil {
+		// Deployment already exists, just activate it and return.
 		return mfd.Activate(deployment)
 	}
 
@@ -381,7 +383,7 @@ func (mfd *MFD) Rollback() error {
 
 	prevIndex := activeIndex + 1
 	if prevIndex >= len(deployments) {
-		return errors.New("no previous deployment found")
+		return ErrNoPreviousDeployment
 	}
 
 	prevDeployment := deployments[prevIndex]
@@ -429,6 +431,8 @@ func run() error {
 
 		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
 		return mfd.Deploy(commitHash)
+	case "rollback":
+		return mfd.Rollback()
 	case "resolve":
 		revision := "HEAD"
 		if len(args) > 1 {
