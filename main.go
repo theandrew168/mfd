@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -15,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/theandrew168/mfd/internal/config"
+	"github.com/theandrew168/mfd/internal/deployment"
 )
 
 const (
@@ -24,60 +23,8 @@ const (
 
 var (
 	ErrDeploymentNotFound   = errors.New("deployment not found")
-	ErrInvalidDeployment    = errors.New("invalid deployment")
 	ErrNoPreviousDeployment = errors.New("no previous deployment found")
 )
-
-type Deployment struct {
-	CreatedAt  time.Time
-	CommitHash string
-}
-
-func NewDeployment(createdAt time.Time, commitHash string) Deployment {
-	return Deployment{
-		CreatedAt:  createdAt,
-		CommitHash: commitHash,
-	}
-}
-
-func ParseDeployment(s string) (Deployment, error) {
-	parts := strings.Split(s, "_")
-	if len(parts) != 3 {
-		return Deployment{}, ErrInvalidDeployment
-	}
-
-	if parts[0] != "mfd" {
-		return Deployment{}, ErrInvalidDeployment
-	}
-
-	t, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return Deployment{}, ErrInvalidDeployment
-	}
-
-	// Validate that the hash is a 40-character SHA1 hash.
-	if len(parts[2]) != 40 {
-		return Deployment{}, ErrInvalidDeployment
-	}
-
-	d := Deployment{
-		CreatedAt:  time.Unix(int64(t), 0),
-		CommitHash: parts[2],
-	}
-	return d, nil
-}
-
-func (d Deployment) String() string {
-	return fmt.Sprintf("mfd_%d_%s", d.CreatedAt.Unix(), d.CommitHash)
-}
-
-func sortDeploymentsNewestToOldest(deployments []Deployment) []Deployment {
-	sortedDeployments := slices.Clone(deployments)
-	slices.SortFunc(sortedDeployments, func(a, b Deployment) int {
-		return b.CreatedAt.Compare(a.CreatedAt)
-	})
-	return sortedDeployments
-}
 
 func main() {
 	code := 0
@@ -103,61 +50,18 @@ func usage() error {
 	return nil
 }
 
-func filesToDeployments(files []os.DirEntry) []Deployment {
-	var deployments []Deployment
-
-	for _, file := range files {
-		name := file.Name()
-
-		// Ignore anythhing that is not a directory.
-		if !file.IsDir() {
-			continue
-		}
-
-		deployment, err := ParseDeployment(name)
-		if err != nil {
-			continue
-		}
-
-		deployments = append(deployments, deployment)
-	}
-
-	return deployments
-}
-
-func listDeployments() ([]Deployment, error) {
-	files, err := os.ReadDir(".")
-	if err != nil {
-		return nil, err
-	}
-
-	deployments := filesToDeployments(files)
-	deployments = sortDeploymentsNewestToOldest(deployments)
-	return deployments, nil
-}
-
-func findDeploymentByCommitHash(deployments []Deployment, commitHash string) (Deployment, error) {
-	for _, deployment := range deployments {
-		if deployment.CommitHash == commitHash {
-			return deployment, nil
-		}
-	}
-
-	return Deployment{}, ErrDeploymentNotFound
-}
-
-func getActiveDeployment() (Deployment, error) {
+func getActiveDeployment() (deployment.Deployment, error) {
 	link, err := os.Readlink(ActiveDeploymentSymlinkName)
 	if err != nil {
-		return Deployment{}, err
+		return deployment.Deployment{}, err
 	}
 
-	deployment, err := ParseDeployment(link)
+	dep, err := deployment.Parse(link)
 	if err != nil {
-		return Deployment{}, err
+		return deployment.Deployment{}, err
 	}
 
-	return deployment, nil
+	return dep, nil
 }
 
 type MFD struct {
@@ -172,28 +76,28 @@ func NewMFD(conf config.Config) MFD {
 }
 
 func (mfd *MFD) List() error {
-	deployments, err := listDeployments()
+	deps, err := deployment.List()
 	if err != nil {
 		return err
 	}
 
-	activeDeployment, err := getActiveDeployment()
+	activeDep, err := getActiveDeployment()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 
-	for _, deployment := range deployments {
-		if deployment.String() == activeDeployment.String() {
-			fmt.Printf("%s (active)\n", deployment.CommitHash)
+	for _, dep := range deps {
+		if dep.String() == activeDep.String() {
+			fmt.Printf("%s (active)\n", dep.CommitHash)
 		} else {
-			fmt.Println(deployment.CommitHash)
+			fmt.Println(dep.CommitHash)
 		}
 	}
 
 	return nil
 }
 
-func (mfd *MFD) Activate(deployment Deployment) error {
+func (mfd *MFD) Activate(dep deployment.Deployment) error {
 	link, err := os.Lstat(ActiveDeploymentSymlinkName)
 	if err != nil {
 		// If the symlink does not exist, we'll soon create it.
@@ -211,12 +115,12 @@ func (mfd *MFD) Activate(deployment Deployment) error {
 		}
 	}
 
-	fmt.Printf("Activating deployment: %s\n", deployment.CommitHash)
-	return os.Symlink(deployment.String(), ActiveDeploymentSymlinkName)
+	fmt.Printf("Activating deployment: %s\n", dep.CommitHash)
+	return os.Symlink(dep.String(), ActiveDeploymentSymlinkName)
 }
 
-func (mfd *MFD) Fetch(deployment Deployment) error {
-	repo, err := git.PlainClone(deployment.String(), false, mfd.conf.CloneOptions())
+func (mfd *MFD) Fetch(dep deployment.Deployment) error {
+	repo, err := git.PlainClone(dep.String(), false, mfd.conf.CloneOptions())
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return nil
@@ -230,19 +134,19 @@ func (mfd *MFD) Fetch(deployment Deployment) error {
 	}
 
 	err = w.Checkout(&git.CheckoutOptions{
-		Hash: plumbing.NewHash(deployment.CommitHash),
+		Hash: plumbing.NewHash(dep.CommitHash),
 	})
 	if err != nil {
-		return fmt.Errorf("error checking out commit %s: %w", deployment.CommitHash, err)
+		return fmt.Errorf("error checking out commit %s: %w", dep.CommitHash, err)
 	}
 
 	return nil
 }
 
-func (mfd *MFD) Build(deployment Deployment) error {
+func (mfd *MFD) Build(dep deployment.Deployment) error {
 	for _, command := range mfd.conf.Build.Commands {
 		cmd := exec.Command(command[0], command[1:]...)
-		cmd.Dir = deployment.String()
+		cmd.Dir = dep.String()
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -275,34 +179,34 @@ func (mfd *MFD) Restart() error {
 }
 
 func (mfd *MFD) Deploy(commitHash string) error {
-	deployments, err := listDeployments()
+	deps, err := deployment.List()
 	if err != nil {
 		return err
 	}
 
-	deployment, err := findDeploymentByCommitHash(deployments, commitHash)
+	dep, err := deployment.FindByCommitHash(deps, commitHash)
 	if err == nil {
 		// Deployment already exists, just activate it and return.
-		return mfd.Activate(deployment)
+		return mfd.Activate(dep)
 	}
 
 	if !errors.Is(err, ErrDeploymentNotFound) {
 		return err
 	}
 
-	deployment = NewDeployment(time.Now(), commitHash)
+	dep = deployment.New(time.Now(), commitHash)
 
-	err = mfd.Fetch(deployment)
+	err = mfd.Fetch(dep)
 	if err != nil {
 		return err
 	}
 
-	err = mfd.Build(deployment)
+	err = mfd.Build(dep)
 	if err != nil {
 		return err
 	}
 
-	err = mfd.Activate(deployment)
+	err = mfd.Activate(dep)
 	if err != nil {
 		return err
 	}
@@ -337,16 +241,16 @@ func (mfd *MFD) Clean() error {
 		return err
 	}
 
-	deployments, err := listDeployments()
+	deps, err := deployment.List()
 	if err != nil {
 		return err
 	}
 
-	if len(deployments) <= KeepDeploymentsCount {
+	if len(deps) <= KeepDeploymentsCount {
 		return nil
 	}
 
-	deploymentsToRemove := deployments[KeepDeploymentsCount:]
+	deploymentsToRemove := deps[KeepDeploymentsCount:]
 	for _, deployment := range deploymentsToRemove {
 		if deployment.String() == activeDeployment.String() {
 			continue
@@ -363,33 +267,33 @@ func (mfd *MFD) Clean() error {
 }
 
 func (mfd *MFD) Rollback() error {
-	activeDeployment, err := getActiveDeployment()
+	activeDep, err := getActiveDeployment()
 	if err != nil {
 		return err
 	}
 
-	deployments, err := listDeployments()
+	deps, err := deployment.List()
 	if err != nil {
 		return err
 	}
 
 	// Find the index of the active deployment.
-	activeIndex := slices.IndexFunc(deployments, func(deployment Deployment) bool {
-		return deployment.String() == activeDeployment.String()
+	activeIndex := slices.IndexFunc(deps, func(dep deployment.Deployment) bool {
+		return dep.String() == activeDep.String()
 	})
 	if activeIndex == -1 {
 		return ErrDeploymentNotFound
 	}
 
 	prevIndex := activeIndex + 1
-	if prevIndex >= len(deployments) {
+	if prevIndex >= len(deps) {
 		return ErrNoPreviousDeployment
 	}
 
-	prevDeployment := deployments[prevIndex]
-	fmt.Printf("Rolling back to %s\n", prevDeployment.CommitHash)
+	prevDep := deps[prevIndex]
+	fmt.Printf("Rolling back to %s\n", prevDep.CommitHash)
 
-	err = mfd.Activate(prevDeployment)
+	err = mfd.Activate(prevDep)
 	if err != nil {
 		return err
 	}

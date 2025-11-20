@@ -1,10 +1,12 @@
-package main
+package deployment_test
 
 import (
 	"errors"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/theandrew168/mfd/internal/deployment"
 )
 
 var _ os.DirEntry = (*fakeDirEntry)(nil)
@@ -16,7 +18,7 @@ type fakeDirEntry struct {
 	modTime time.Time
 }
 
-func NewFakeDirEntry(name string, isDir bool, modTime time.Time) *fakeDirEntry {
+func newFakeDirEntry(name string, isDir bool, modTime time.Time) *fakeDirEntry {
 	fde := fakeDirEntry{
 		name:    name,
 		isDir:   isDir,
@@ -56,64 +58,64 @@ func (fde *fakeDirEntry) Info() (os.FileInfo, error) {
 func (fde *fakeDirEntry) Sys() any {
 	return nil
 }
-func TestFilesToDeployments(t *testing.T) {
+func TestFromFiles(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
 	files := []os.DirEntry{
 		// Not a directory, should be ignored.
-		NewFakeDirEntry("mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", false, now),
+		newFakeDirEntry("mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", false, now),
 		// Invalid deployment directory, should be ignored.
-		NewFakeDirEntry("testdata", true, now),
+		newFakeDirEntry("testdata", true, now),
 		// Valid deployment directory, should be included.
-		NewFakeDirEntry("mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", true, now),
+		newFakeDirEntry("mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3", true, now),
 	}
 
-	deployments := filesToDeployments(files)
-	if len(deployments) != 1 {
-		t.Fatalf("Expected 1 relevant directory, got %d", len(deployments))
+	deps := deployment.FromFiles(files)
+	if len(deps) != 1 {
+		t.Fatalf("Expected 1 relevant directory, got %d", len(deps))
 	}
 
-	if deployments[0].CommitHash != "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3" {
-		t.Errorf("Unexpected commit hash: %s", deployments[0].CommitHash)
+	if deps[0].CommitHash != "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3" {
+		t.Errorf("Unexpected commit hash: %s", deps[0].CommitHash)
 	}
 }
 
-func TestDeploymentString(t *testing.T) {
+func TestString(t *testing.T) {
 	t.Parallel()
 
-	deployment := NewDeployment(
+	dep := deployment.New(
 		time.Unix(1625079600, 0),
 		"a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
 	)
 
 	expected := "mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
-	if deployment.String() != expected {
-		t.Errorf("Expected deployment string '%s', got '%s'", expected, deployment.String())
+	if dep.String() != expected {
+		t.Errorf("Expected deployment string '%s', got '%s'", expected, dep.String())
 	}
 }
 
-func TestParseDeployment(t *testing.T) {
+func TestParse(t *testing.T) {
 	t.Parallel()
 
 	dirName := "mfd_1625079600_a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
-	deployment, err := ParseDeployment(dirName)
+	dep, err := deployment.Parse(dirName)
 	if err != nil {
 		t.Fatalf("Failed to parse deployment: %v", err)
 	}
 
 	expectedCreatedAt := time.Unix(1625079600, 0)
-	if !deployment.CreatedAt.Equal(expectedCreatedAt) {
-		t.Errorf("Expected created at %v, got %v", expectedCreatedAt, deployment.CreatedAt)
+	if !dep.CreatedAt.Equal(expectedCreatedAt) {
+		t.Errorf("Expected created at %v, got %v", expectedCreatedAt, dep.CreatedAt)
 	}
 
 	expectedCommitHash := "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
-	if deployment.CommitHash != expectedCommitHash {
-		t.Errorf("Expected commit hash %s, got %s", expectedCommitHash, deployment.CommitHash)
+	if dep.CommitHash != expectedCommitHash {
+		t.Errorf("Expected commit hash %s, got %s", expectedCommitHash, dep.CommitHash)
 	}
 }
 
-func TestParseDeploymentInvalid(t *testing.T) {
+func TestParseInvalid(t *testing.T) {
 	t.Parallel()
 
 	invalidDirNames := []string{
@@ -128,23 +130,23 @@ func TestParseDeploymentInvalid(t *testing.T) {
 	}
 
 	for _, dirName := range invalidDirNames {
-		_, err := ParseDeployment(dirName)
-		if !errors.Is(err, ErrInvalidDeployment) {
+		_, err := deployment.Parse(dirName)
+		if !errors.Is(err, deployment.ErrInvalidDeployment) {
 			t.Errorf("Expected error parsing invalid directory name '%s', got nil", dirName)
 		}
 	}
 }
 
-func TestSortDeploymentsNewestToOldest(t *testing.T) {
+func TestSortNewestToOldest(t *testing.T) {
 	t.Parallel()
 
-	deployments := []Deployment{
+	deps := []deployment.Deployment{
 		{CreatedAt: time.Unix(2, 0)},
 		{CreatedAt: time.Unix(1, 0)},
 		{CreatedAt: time.Unix(3, 0)},
 	}
 
-	sorted := sortDeploymentsNewestToOldest(deployments)
+	sorted := deployment.SortNewestToOldest(deps)
 
 	expectedOrder := []time.Time{
 		time.Unix(3, 0),
@@ -152,9 +154,9 @@ func TestSortDeploymentsNewestToOldest(t *testing.T) {
 		time.Unix(1, 0),
 	}
 
-	for i, deployment := range sorted {
-		if !deployment.CreatedAt.Equal(expectedOrder[i]) {
-			t.Errorf("At index %d, expected time %v, got %v", i, expectedOrder[i], deployment.CreatedAt)
+	for i, dep := range sorted {
+		if !dep.CreatedAt.Equal(expectedOrder[i]) {
+			t.Errorf("At index %d, expected time %v, got %v", i, expectedOrder[i], dep.CreatedAt)
 		}
 	}
 }
