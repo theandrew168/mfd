@@ -298,6 +298,7 @@ func (mfd *MFD) Activate(deployment Deployment) error {
 		}
 	}
 
+	fmt.Printf("Activating deployment: %s\n", deployment.CommitHash)
 	return os.Symlink(deployment.String(), ActiveDeploymentSymlinkName)
 }
 
@@ -437,6 +438,7 @@ func (mfd *MFD) Clean() error {
 			continue
 		}
 
+		fmt.Printf("Removing deployment: %s\n", deployment.CommitHash)
 		err = os.RemoveAll(deployment.String())
 		if err != nil {
 			return err
