@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-git/go-git/v5"
@@ -20,15 +23,67 @@ const (
 )
 
 var (
-	ErrRemoveActive     = errors.New("cannot remove active deployment")
-	ErrMissingUsername  = errors.New("username must be specified when using password authentication")
-	ErrTokenAndPassword = errors.New("cannot specify both password and token for authentication")
+	ErrDeploymentNotFound = errors.New("deployment not found")
+	ErrInvalidDeployment  = errors.New("invalid deployment")
+	ErrMissingUsername    = errors.New("username must be specified when using password authentication")
+	ErrTokenAndPassword   = errors.New("cannot specify both password and token for authentication")
 )
 
 type Command []string
 
 func (c Command) String() string {
 	return strings.Join(c, " ")
+}
+
+type Deployment struct {
+	CreatedAt  time.Time
+	CommitHash string
+}
+
+func NewDeployment(createdAt time.Time, commitHash string) Deployment {
+	return Deployment{
+		CreatedAt:  createdAt,
+		CommitHash: commitHash,
+	}
+}
+
+func ParseDeployment(s string) (Deployment, error) {
+	parts := strings.Split(s, "_")
+	if len(parts) != 3 {
+		return Deployment{}, ErrInvalidDeployment
+	}
+
+	if parts[0] != "mfd" {
+		return Deployment{}, ErrInvalidDeployment
+	}
+
+	t, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return Deployment{}, ErrInvalidDeployment
+	}
+
+	// Validate that the hash is a 40-character SHA1 hash.
+	if len(parts[2]) != 40 {
+		return Deployment{}, ErrInvalidDeployment
+	}
+
+	d := Deployment{
+		CreatedAt:  time.Unix(int64(t), 0),
+		CommitHash: parts[2],
+	}
+	return d, nil
+}
+
+func (d Deployment) String() string {
+	return fmt.Sprintf("mfd_%d_%s", d.CreatedAt.Unix(), d.CommitHash)
+}
+
+func sortDeploymentsNewestToOldest(deployments []Deployment) []Deployment {
+	sortedDeployments := slices.Clone(deployments)
+	slices.SortFunc(sortedDeployments, func(a, b Deployment) int {
+		return b.CreatedAt.Compare(a.CreatedAt)
+	})
+	return sortedDeployments
 }
 
 type Config struct {
@@ -129,18 +184,14 @@ func usage() error {
 	fmt.Println("  list        List available deployments")
 	fmt.Println("  deploy      Resolve, fetch, build, and activate a revision")
 	fmt.Println("  resolve     Resolve a revision to a deployment")
-	fmt.Println("  activate    Activate a deployment")
-	fmt.Println("  remove      Remove a deployment")
-	fmt.Println("  clean       Remove non-active deployments")
+	fmt.Println("  rollback    Rollback to the previous deployment")
+	fmt.Println("  clean       Remove old, non-active deployments")
 	fmt.Println("  help        Show this help message")
 	return nil
 }
 
-// This function filters out directories that are not relevant for deployments.
-// It ignores hidden directories (those starting with a dot), non-directory entries,
-// and directories whose names are not 40-character SHA1 hashes.
-func filterRelevantDirectories(files []os.DirEntry) []os.DirEntry {
-	var filteredFiles []os.DirEntry
+func filesToDeployments(files []os.DirEntry) []Deployment {
+	var deployments []Deployment
 
 	for _, file := range files {
 		name := file.Name()
@@ -150,20 +201,50 @@ func filterRelevantDirectories(files []os.DirEntry) []os.DirEntry {
 			continue
 		}
 
-		// Ignore hidden directories.
-		if strings.HasPrefix(name, ".") {
+		deployment, err := ParseDeployment(name)
+		if err != nil {
 			continue
 		}
 
-		// Ignore directories whose names are not 40-character SHA1 hashes.
-		if len(name) != 40 {
-			continue
-		}
-
-		filteredFiles = append(filteredFiles, file)
+		deployments = append(deployments, deployment)
 	}
 
-	return filteredFiles
+	return deployments
+}
+
+func listDeployments() ([]Deployment, error) {
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return nil, err
+	}
+
+	deployments := filesToDeployments(files)
+	deployments = sortDeploymentsNewestToOldest(deployments)
+	return deployments, nil
+}
+
+func findDeploymentByCommitHash(deployments []Deployment, commitHash string) (Deployment, error) {
+	for _, deployment := range deployments {
+		if deployment.CommitHash == commitHash {
+			return deployment, nil
+		}
+	}
+
+	return Deployment{}, ErrDeploymentNotFound
+}
+
+func getActiveDeployment() (Deployment, error) {
+	link, err := os.Readlink(ActiveDeploymentSymlinkName)
+	if err != nil {
+		return Deployment{}, err
+	}
+
+	deployment, err := ParseDeployment(link)
+	if err != nil {
+		return Deployment{}, err
+	}
+
+	return deployment, nil
 }
 
 type MFD struct {
@@ -178,34 +259,32 @@ func NewMFD(conf Config) MFD {
 }
 
 func (mfd *MFD) List() error {
-	files, err := os.ReadDir(".")
+	deployments, err := listDeployments()
 	if err != nil {
 		return err
 	}
 
-	files = filterRelevantDirectories(files)
-
-	active, err := os.Readlink(ActiveDeploymentSymlinkName)
+	activeDeployment, err := getActiveDeployment()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil
+		return err
 	}
 
-	for _, file := range files {
-		name := file.Name()
-		if name == active {
-			fmt.Printf("%s (active)\n", name)
+	for _, deployment := range deployments {
+		if deployment.String() == activeDeployment.String() {
+			fmt.Printf("%s (active)\n", deployment.CommitHash)
 		} else {
-			fmt.Println(name)
+			fmt.Println(deployment.CommitHash)
 		}
 	}
 
 	return nil
 }
 
-func (mfd *MFD) Activate(deployment string) error {
+func (mfd *MFD) Activate(deployment Deployment) error {
 	link, err := os.Lstat(ActiveDeploymentSymlinkName)
 	if err != nil {
 		// If the symlink does not exist, we'll soon create it.
+		// This code only returns other, non-not-exist errors.
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -219,11 +298,11 @@ func (mfd *MFD) Activate(deployment string) error {
 		}
 	}
 
-	return os.Symlink(deployment, ActiveDeploymentSymlinkName)
+	return os.Symlink(deployment.String(), ActiveDeploymentSymlinkName)
 }
 
-func (mfd *MFD) Fetch(deployment string) error {
-	repo, err := git.PlainClone(deployment, false, mfd.conf.CloneOptions())
+func (mfd *MFD) Fetch(deployment Deployment) error {
+	repo, err := git.PlainClone(deployment.String(), false, mfd.conf.CloneOptions())
 	if err != nil {
 		if errors.Is(err, git.ErrRepositoryAlreadyExists) {
 			return nil
@@ -237,19 +316,19 @@ func (mfd *MFD) Fetch(deployment string) error {
 	}
 
 	err = w.Checkout(&git.CheckoutOptions{
-		Hash: plumbing.NewHash(deployment),
+		Hash: plumbing.NewHash(deployment.CommitHash),
 	})
 	if err != nil {
-		return fmt.Errorf("error checking out commit %s: %w", deployment, err)
+		return fmt.Errorf("error checking out commit %s: %w", deployment.CommitHash, err)
 	}
 
 	return nil
 }
 
-func (mfd *MFD) Build(deployment string) error {
+func (mfd *MFD) Build(deployment Deployment) error {
 	for _, command := range mfd.conf.Build.Commands {
 		cmd := exec.Command(command[0], command[1:]...)
-		cmd.Dir = deployment
+		cmd.Dir = deployment.String()
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
@@ -281,8 +360,24 @@ func (mfd *MFD) Restart() error {
 	return nil
 }
 
-func (mfd *MFD) Deploy(deployment string) error {
-	err := mfd.Fetch(deployment)
+func (mfd *MFD) Deploy(commitHash string) error {
+	deployments, err := listDeployments()
+	if err != nil {
+		return err
+	}
+
+	deployment, err := findDeploymentByCommitHash(deployments, commitHash)
+	if err == nil {
+		return mfd.Activate(deployment)
+	}
+
+	if !errors.Is(err, ErrDeploymentNotFound) {
+		return err
+	}
+
+	deployment = NewDeployment(time.Now(), commitHash)
+
+	err = mfd.Fetch(deployment)
 	if err != nil {
 		return err
 	}
@@ -312,50 +407,75 @@ func (mfd *MFD) Resolve(revision string) (string, error) {
 		return "", fmt.Errorf("error performing in-memory clone: %w", err)
 	}
 
-	// Resolve the revision to a commit hash.
-	commit, err := repo.ResolveRevision(plumbing.Revision(revision))
+	// Resolve the revision to a commitHash hash.
+	commitHash, err := repo.ResolveRevision(plumbing.Revision(revision))
 	if err != nil {
 		return "", fmt.Errorf("error resolving revision: %w", err)
 	}
 
-	return commit.String(), nil
+	return commitHash.String(), nil
 }
 
-func (mfd *MFD) Remove(deployment string) error {
-	active, err := os.Readlink(ActiveDeploymentSymlinkName)
+func (mfd *MFD) Clean() error {
+	activeDeployment, err := getActiveDeployment()
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	deployments, err := listDeployments()
+	if err != nil {
+		return err
+	}
+
+	if len(deployments) <= KeepDeploymentsCount {
 		return nil
 	}
 
-	if active == deployment || deployment == ActiveDeploymentSymlinkName {
-		return ErrRemoveActive
-	}
+	deploymentsToRemove := deployments[KeepDeploymentsCount:]
+	for _, deployment := range deploymentsToRemove {
+		if deployment.String() == activeDeployment.String() {
+			continue
+		}
 
-	fmt.Printf("Removing deployment: %s\n", deployment)
-	err = os.RemoveAll(deployment)
-	if err != nil {
-		return err
+		err = os.RemoveAll(deployment.String())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (mfd *MFD) Clean() error {
-	files, err := os.ReadDir(".")
+func (mfd *MFD) Rollback() error {
+	activeDeployment, err := getActiveDeployment()
 	if err != nil {
 		return err
 	}
 
-	files = filterRelevantDirectories(files)
+	deployments, err := listDeployments()
+	if err != nil {
+		return err
+	}
 
-	for _, file := range files {
-		err = mfd.Remove(file.Name())
-		if err != nil {
-			if errors.Is(err, ErrRemoveActive) {
-				continue
-			}
-			return err
-		}
+	// Find the index of the active deployment.
+	activeIndex := slices.IndexFunc(deployments, func(deployment Deployment) bool {
+		return deployment.String() == activeDeployment.String()
+	})
+	if activeIndex == -1 {
+		return ErrDeploymentNotFound
+	}
+
+	prevIndex := activeIndex + 1
+	if prevIndex >= len(deployments) {
+		return errors.New("no previous deployment found")
+	}
+
+	prevDeployment := deployments[prevIndex]
+	fmt.Printf("Rolling back to %s\n", prevDeployment.CommitHash)
+
+	err = mfd.Activate(prevDeployment)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -393,44 +513,28 @@ func run() error {
 			revision = args[1]
 		}
 
-		deployment, err := mfd.Resolve(revision)
+		commitHash, err := mfd.Resolve(revision)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Resolved %s to %s\n", revision, deployment)
-		return mfd.Deploy(deployment)
+		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
+		return mfd.Deploy(commitHash)
 	case "resolve":
 		revision := "HEAD"
 		if len(args) > 1 {
 			revision = args[1]
 		}
 
-		deployment, err := mfd.Resolve(revision)
+		commitHash, err := mfd.Resolve(revision)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Resolved %s to %s\n", revision, deployment)
+		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
 		return nil
-	case "activate":
-		if len(args) < 2 {
-			return usage()
-		}
-		deployment := args[1]
-		return mfd.Activate(deployment)
 	case "restart":
 		return mfd.Restart()
-	case "rm":
-		fallthrough
-	case "delete":
-		fallthrough
-	case "remove":
-		if len(args) < 2 {
-			return usage()
-		}
-		deployment := args[1]
-		return mfd.Remove(deployment)
 	case "clean":
 		return mfd.Clean()
 	default:
