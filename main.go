@@ -25,7 +25,6 @@ func usage() error {
 	fmt.Println("commands:")
 	fmt.Println("  list        List available deployments")
 	fmt.Println("  deploy      Resolve, fetch, build, and activate a revision")
-	fmt.Println("  resolve     Resolve a revision to a deployment")
 	fmt.Println("  rollback    Rollback to the previous deployment")
 	fmt.Println("  clean       Remove old, non-active deployments")
 	fmt.Println("  help        Show this help message")
@@ -47,8 +46,6 @@ func run() error {
 
 	cmd := args[0]
 	switch cmd {
-	case "help":
-		return usage()
 	case "ls":
 		fallthrough
 	case "list":
@@ -81,10 +78,10 @@ func run() error {
 
 		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
 		return nil
-	case "restart":
-		return client.Restart()
 	case "clean":
 		return client.Clean()
+	case "help":
+		fallthrough
 	default:
 		return usage()
 	}

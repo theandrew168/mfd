@@ -73,24 +73,6 @@ func (c *Client) List() error {
 	return nil
 }
 
-func (c *Client) Restart() error {
-	if c.cfg.Systemd.Unit == "" {
-		return nil
-	}
-
-	cmd := exec.Command("systemctl", "restart", c.cfg.Systemd.Unit)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	fmt.Printf("systemctl restart %s\n", c.cfg.Systemd.Unit)
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("error restarting systemd unit %s: %w", c.cfg.Systemd.Unit, err)
-	}
-
-	return nil
-}
-
 func (c *Client) Deploy(commitHash string) error {
 	deps, err := deployment.List()
 	if err != nil {
@@ -124,7 +106,7 @@ func (c *Client) Deploy(commitHash string) error {
 		return err
 	}
 
-	err = c.Restart()
+	err = c.restart()
 	if err != nil {
 		return err
 	}
@@ -275,4 +257,22 @@ func (c *Client) activate(dep deployment.Deployment) error {
 
 	fmt.Printf("Activating deployment: %s\n", dep.CommitHash)
 	return os.Symlink(dep.String(), activeDeploymentSymlinkName)
+}
+
+func (c *Client) restart() error {
+	if c.cfg.Systemd.Unit == "" {
+		return nil
+	}
+
+	cmd := exec.Command("systemctl", "restart", c.cfg.Systemd.Unit)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Printf("systemctl restart %s\n", c.cfg.Systemd.Unit)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("error restarting systemd unit %s: %w", c.cfg.Systemd.Unit, err)
+	}
+
+	return nil
 }
