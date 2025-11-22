@@ -25,6 +25,9 @@ func TestReadConfig(t *testing.T) {
 		commands = [
 			["%s"],
 		]
+
+		[systemd]
+		unit = "mfd"
 	`, url, token, strings.Join(command, `", "`))
 
 	config, err := config.Read(toml)
@@ -43,6 +46,9 @@ func TestReadConfig(t *testing.T) {
 	}
 	if config.Repo.Token != token {
 		t.Errorf("Expected auth token %s, got %s", token, config.Repo.Token)
+	}
+	if config.Systemd.Unit != "mfd" {
+		t.Errorf("Expected systemd unit 'mfd', got '%s'", config.Systemd.Unit)
 	}
 }
 

@@ -32,6 +32,9 @@ type Config struct {
 	Build struct {
 		Commands []Command `toml:"commands"`
 	} `toml:"build"`
+	Systemd struct {
+		Unit string `toml:"unit"`
+	} `toml:"systemd"`
 }
 
 func (c Config) CloneOptions() *git.CloneOptions {
