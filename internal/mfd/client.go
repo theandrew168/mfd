@@ -278,7 +278,7 @@ func (c *Client) restart() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("systemctl restart %s\n", c.cfg.Systemd.Unit)
+	fmt.Printf("Restarting: %s\n", c.cfg.Systemd.Unit)
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("error restarting systemd unit %s: %w", c.cfg.Systemd.Unit, err)
