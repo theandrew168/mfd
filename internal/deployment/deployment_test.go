@@ -131,7 +131,7 @@ func TestParseInvalid(t *testing.T) {
 
 	for _, dirName := range invalidDirNames {
 		_, err := deployment.Parse(dirName)
-		if !errors.Is(err, deployment.ErrInvalidDeployment) {
+		if !errors.Is(err, deployment.ErrInvalid) {
 			t.Errorf("Expected error parsing invalid directory name '%s', got nil", dirName)
 		}
 	}

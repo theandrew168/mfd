@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	ErrDeploymentNotFound = errors.New("deployment not found")
-	ErrInvalidDeployment  = errors.New("invalid deployment")
+	ErrNotFound = errors.New("deployment not found")
+	ErrInvalid  = errors.New("invalid deployment")
 )
 
 type Deployment struct {
@@ -30,21 +30,21 @@ func New(createdAt time.Time, commitHash string) Deployment {
 func Parse(s string) (Deployment, error) {
 	parts := strings.Split(s, "_")
 	if len(parts) != 3 {
-		return Deployment{}, ErrInvalidDeployment
+		return Deployment{}, ErrInvalid
 	}
 
 	if parts[0] != "mfd" {
-		return Deployment{}, ErrInvalidDeployment
+		return Deployment{}, ErrInvalid
 	}
 
 	t, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return Deployment{}, ErrInvalidDeployment
+		return Deployment{}, ErrInvalid
 	}
 
 	// Validate that the hash is a 40-character SHA1 hash.
 	if len(parts[2]) != 40 {
-		return Deployment{}, ErrInvalidDeployment
+		return Deployment{}, ErrInvalid
 	}
 
 	d := Deployment{
@@ -105,5 +105,5 @@ func FindByCommitHash(deployments []Deployment, commitHash string) (Deployment, 
 		}
 	}
 
-	return Deployment{}, ErrDeploymentNotFound
+	return Deployment{}, ErrNotFound
 }

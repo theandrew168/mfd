@@ -22,7 +22,6 @@ const (
 )
 
 var (
-	ErrDeploymentNotFound   = errors.New("deployment not found")
 	ErrNoPreviousDeployment = errors.New("no previous deployment found")
 )
 
@@ -85,7 +84,7 @@ func (c *Client) Deploy(commitHash string) error {
 		return c.activate(dep)
 	}
 
-	if !errors.Is(err, ErrDeploymentNotFound) {
+	if !errors.Is(err, deployment.ErrNotFound) {
 		return err
 	}
 
@@ -172,7 +171,7 @@ func (c *Client) Rollback() error {
 		return dep.String() == activeDep.String()
 	})
 	if activeIndex == -1 {
-		return ErrDeploymentNotFound
+		return deployment.ErrNotFound
 	}
 
 	prevIndex := activeIndex + 1
