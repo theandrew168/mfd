@@ -24,7 +24,7 @@ func usage() error {
 	fmt.Println("usage: mfd <command> [<args>]")
 	fmt.Println("commands:")
 	fmt.Println("  list        List available deployments")
-	fmt.Println("  deploy      Resolve, fetch, build, and activate a revision")
+	fmt.Println("  deploy      Resolve, fetch, build, activate, and restart a revision")
 	fmt.Println("  rollback    Rollback to the previous deployment")
 	fmt.Println("  clean       Remove old, non-active deployments")
 	fmt.Println("  help        Show this help message")
