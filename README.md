@@ -9,7 +9,6 @@ commands:
   list        List available deployments
   deploy      Resolve, fetch, build, activate, and restart a revision
   rollback    Rollback to the previous deployment
-  clean       Remove non-active deployments
   help        Show this help message
 ```
 
@@ -46,7 +45,7 @@ cc9bb24537014b7f16c14e745b4c3279dd61964a
 
 So, how does this work under the hood?
 Simple!
-It's just a symlink:
+It's just a symlink (slightly simplified here):
 ```console
 $ ls -l
 active -> a171e61f03f36be6a8aa0b8eb9bcd37ef380aed6

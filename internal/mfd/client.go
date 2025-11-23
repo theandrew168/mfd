@@ -120,6 +120,11 @@ func (c *Client) Deploy(commitHash string) error {
 		return err
 	}
 
+	err = c.clean()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -137,37 +142,6 @@ func (c *Client) Resolve(revision string) (string, error) {
 	}
 
 	return commitHash.String(), nil
-}
-
-func (c *Client) Clean() error {
-	activeDeployment, err := getActiveDeployment()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	deps, err := deployment.List()
-	if err != nil {
-		return err
-	}
-
-	if len(deps) <= keepDeploymentsCount {
-		return nil
-	}
-
-	deploymentsToRemove := deps[keepDeploymentsCount:]
-	for _, deployment := range deploymentsToRemove {
-		if deployment.String() == activeDeployment.String() {
-			continue
-		}
-
-		fmt.Printf("Removing deployment: %s\n", deployment.CommitHash)
-		err = os.RemoveAll(deployment.String())
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (c *Client) Rollback() error {
@@ -286,4 +260,35 @@ func (c *Client) restart() error {
 
 	return nil
 
+}
+
+func (c *Client) clean() error {
+	activeDeployment, err := getActiveDeployment()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	deps, err := deployment.List()
+	if err != nil {
+		return err
+	}
+
+	if len(deps) <= keepDeploymentsCount {
+		return nil
+	}
+
+	deploymentsToRemove := deps[keepDeploymentsCount:]
+	for _, deployment := range deploymentsToRemove {
+		if deployment.String() == activeDeployment.String() {
+			continue
+		}
+
+		fmt.Printf("Removing deployment: %s\n", deployment.CommitHash)
+		err = os.RemoveAll(deployment.String())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

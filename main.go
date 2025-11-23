@@ -26,7 +26,6 @@ func usage() error {
 	fmt.Println("  list        List available deployments")
 	fmt.Println("  deploy      Resolve, fetch, build, activate, and restart a revision")
 	fmt.Println("  rollback    Rollback to the previous deployment")
-	fmt.Println("  clean       Remove old, non-active deployments")
 	fmt.Println("  help        Show this help message")
 	return nil
 }
@@ -78,8 +77,6 @@ func run() error {
 
 		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
 		return nil
-	case "clean":
-		return client.Clean()
 	case "help":
 		fallthrough
 	default:
