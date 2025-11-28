@@ -31,6 +31,16 @@ func usage() error {
 }
 
 func run() error {
+	args := os.Args[1:]
+	if len(args) == 0 {
+		return usage()
+	}
+
+	cmd := args[0]
+	if cmd == "help" {
+		return usage()
+	}
+
 	cfg, err := config.ReadFile("mfd.toml")
 	if err != nil {
 		return fmt.Errorf("error reading configuration: %w", err)
@@ -38,12 +48,6 @@ func run() error {
 
 	client := mfd.NewClient(cfg)
 
-	args := os.Args[1:]
-	if len(args) == 0 {
-		return usage()
-	}
-
-	cmd := args[0]
 	switch cmd {
 	case "ls":
 		fallthrough
@@ -77,8 +81,6 @@ func run() error {
 
 		fmt.Printf("Resolved %s to %s\n", revision, commitHash)
 		return nil
-	case "help":
-		fallthrough
 	default:
 		return usage()
 	}
